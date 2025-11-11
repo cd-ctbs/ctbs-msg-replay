@@ -8,13 +8,17 @@ import (
 )
 
 type Setting struct {
-	Server       string `json:"server"`
-	Username     string `json:"username"`
-	Password     string `json:"password"`
-	SedQueueTips string `json:"sed_queue_tips"`
-	SedQueueCtbs string `json:"sed_queue_ctbs"`
-	FilePath     string `json:"file_path"`
-	IsRunning    bool   `json:"-"`
+	Server            string `json:"server"`
+	Username          string `json:"username"`
+	Password          string `json:"password"`
+	SedQueueTips      string `json:"sed_queue_tips"`
+	SedQueueCtbs      string `json:"sed_queue_ctbs"`
+	FilePath          string `json:"file_path"`
+	OriginalFilePath  string `json:"original_file_path"`
+	EncKey            string `json:"enc_key"`
+	DecryptedFilePath string `json:"decrypted_file_path"`
+	PayeeOpBkCode     string `json:"payee_op_bk_code"`
+	IsRunning         bool   `json:"-"`
 }
 
 const savedfile = "settings.json"
