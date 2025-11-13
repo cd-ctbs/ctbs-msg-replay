@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/rivo/tview"
+	"github.com/sqweek/dialog"
 	"golang.org/x/text/encoding/simplifiedchinese"
 	"io"
 	"io/ioutil"
@@ -32,12 +33,14 @@ type StatisticsData struct {
 	SedMsg7221Count  uint64
 	DecryptFileCount uint64
 	ConvertFileCount uint64
+	Detail7211Count  uint64
+	Detail7221Count  uint64
 }
 
 /**
 * 解密文件
  */
-func decryptFiles(originalFilePath string, encKey string) (string, error) {
+func decryptFiles(originalFilePath string, encKey string, staticsData *StatisticsData) (string, error) {
 	// 获取解密后目录：与setting.OriginalFilePathh平级的新目录
 	AppLogger.Printf("创建解密后的文件目录")
 	baseDir := filepath.Dir(originalFilePath)                                                                              // 获取setting.OriginalFilePath的上级目录
@@ -70,6 +73,8 @@ func decryptFiles(originalFilePath string, encKey string) (string, error) {
 			if err != nil {
 				AppLogger.Printf("复制文件失败 %s 到 %s: %v", path, targetFilePath, err)
 				return err
+			} else {
+				atomic.AddUint64(&staticsData.DecryptFileCount, 1)
 			}
 
 			AppLogger.Printf("文件已复制: %s -> %s", path, targetFilePath)
@@ -89,6 +94,8 @@ func decryptFiles(originalFilePath string, encKey string) (string, error) {
 			if err != nil {
 				AppLogger.Printf("保存解密文件失败 %s: %v", targetFilePath, err)
 				return err
+			} else {
+				atomic.AddUint64(&staticsData.DecryptFileCount, 1)
 			}
 
 			AppLogger.Printf("文件已解密并保存: %s -> %s", path, targetFilePath)
@@ -123,7 +130,7 @@ func copyFile(src, dst string) error {
 	return err
 }
 
-func convertFiles(decryptedFilePath string, originalFilePath string, payeeOpBkCode string) (string, error) {
+func convertFiles(decryptedFilePath string, originalFilePath string, payeeOpBkCode string, staticsData *StatisticsData) (string, error) {
 	// 获取解密后目录：与settingDecryptedFilePath平级的新目录
 	AppLogger.Printf("创建转换后的文件目录")
 	baseDir := filepath.Dir(decryptedFilePath) // 获取上级目录
@@ -166,12 +173,18 @@ func convertFiles(decryptedFilePath string, originalFilePath string, payeeOpBkCo
 				err := ioutil.WriteFile(targetFilePath, []byte(outputData.Item8), 0644)
 				if err != nil {
 					AppLogger.Printf("写入文件失败: %v", err)
+				} else {
+					atomic.AddUint64(&staticsData.ConvertFileCount, 1)
+					// 将明细数进行累加
+					atomic.AddUint64(&staticsData.Detail7211Count, uint64(outputData.Detail7211Count))
+					atomic.AddUint64(&staticsData.Detail7221Count, uint64(outputData.Detail7221Count))
 				}
 				count++
 			}
-		} else {
-			AppLogger.Printf("转换文件不是xml文件: %s", path)
 		}
+		//else {
+		//	AppLogger.Printf("转换文件不是xml文件: %s", path)
+		//}
 
 		return nil
 	})
@@ -196,17 +209,24 @@ func handleMsg(ctx context.Context, id int, setting *Setting, staticsData *Stati
 	go client.HeartBeat(ctx)
 
 	// 解密
-	decryptedFilePath, err := decryptFiles(setting.FilePath, setting.EncKey)
+	decryptedFilePath, err := decryptFiles(setting.FilePath, setting.EncKey, staticsData)
 	if decryptedFilePath == "" || err != nil {
 		AppLogger.Printf("Worker %d decrypt error: %s\n", id, err)
 		return
 	}
+
+	// 等待3秒
+	time.Sleep(3 * time.Second)
+
 	// 转换
-	convertedFilePath, err := convertFiles(decryptedFilePath, setting.FilePath, setting.PayeeOpBkCode)
+	convertedFilePath, err := convertFiles(decryptedFilePath, setting.FilePath, setting.PayeeOpBkCode, staticsData)
 	if convertedFilePath == "" || err != nil {
 		AppLogger.Printf("Worker %d convert error: %s\n", id, err)
 		return
 	}
+
+	// 等待3秒
+	time.Sleep(3 * time.Second)
 
 	//AppLogger.Printf("创建转换后的文件目录")
 	//// 获取上级目录
@@ -268,6 +288,8 @@ func handleMsg(ctx context.Context, id int, setting *Setting, staticsData *Stati
 			if err != nil {
 				return err
 			}
+			// 等待100ms
+			time.Sleep(100 * time.Millisecond)
 			if msgNo == "7221" {
 				// 【替换操作提前到转换的时候了，这里不需要再替换了】
 				//// 替换MsgID
@@ -462,13 +484,19 @@ func displayStatistics(ctx context.Context, data *StatisticsData, list *tview.Te
 	data.SedMsg7221Count = 0
 	data.DecryptFileCount = 0
 	data.ConvertFileCount = 0
+	data.Detail7211Count = 0
+	data.Detail7221Count = 0
 	for {
 		select {
 		case <-ctx.Done():
 			app.QueueUpdateDraw(func() {
 				list.Clear()
-				fmt.Fprintf(list, "Sed tips.7211 [%d]\n", data.SedMsg7211Count)
-				fmt.Fprintf(list, "Sed tips.7221 [%d]\n", data.SedMsg7221Count)
+				fmt.Fprintf(list, "解密文件数 [%d]\n", data.DecryptFileCount)
+				fmt.Fprintf(list, "转换文件数 [%d]\n", data.ConvertFileCount)
+				fmt.Fprintf(list, "发送7211报文数 [%d]\n", data.SedMsg7211Count)
+				fmt.Fprintf(list, "发送7221报文数 [%d]\n", data.SedMsg7221Count)
+				fmt.Fprintf(list, "7211明细数 [%d]\n", data.Detail7211Count)
+				fmt.Fprintf(list, "7221明细数 [%d]\n", data.Detail7221Count)
 
 				fmt.Fprintf(list, "\nCurrent Time is %s\n", time.Now().Format("2006-01-02T15:04:05"))
 				fmt.Fprintf(list, "执行结束...")
@@ -478,8 +506,10 @@ func displayStatistics(ctx context.Context, data *StatisticsData, list *tview.Te
 		default:
 			app.QueueUpdateDraw(func() {
 				list.Clear()
-				fmt.Fprintf(list, "Sed tips.7211 [%d]\n", data.SedMsg7211Count)
-				fmt.Fprintf(list, "Sed tips.7221 [%d]\n", data.SedMsg7221Count)
+				fmt.Fprintf(list, "解密文件数 [%d]\n", data.DecryptFileCount)
+				fmt.Fprintf(list, "转换文件数 [%d]\n", data.ConvertFileCount)
+				fmt.Fprintf(list, "发送7211报文数 [%d]\n", data.SedMsg7211Count)
+				fmt.Fprintf(list, "发送7221报文数 [%d]\n", data.SedMsg7221Count)
 
 				fmt.Fprintf(list, "\nCurrent Time is %s\n", time.Now().Format("2006-01-02T15:04:05"))
 				time.Sleep(500 * time.Microsecond)
@@ -677,19 +707,19 @@ func main() {
 		AddPasswordField("密码", setting.Password, 50, '*', func(text string) { setting.Password = text }).
 		AddInputField("tips报文队列名", setting.SedQueueTips, 50, nil, func(text string) { setting.SedQueueTips = text }).
 		AddInputField("原始文件路径", setting.FilePath, 50, nil, func(text string) { setting.FilePath = text }).
-		//AddButton("Browse...", func() {
-		//	// 调用系统文件选择对话框
-		//	go func() {
-		//		dir, err := dialog.Directory().Title("Choose XML Directory").Browse()
-		//		if err == nil {
-		//			app.QueueUpdateDraw(func() {
-		//				filePathField := globalFrom.GetFormItemByLabel("原始文件路径").(*tview.InputField)
-		//				filePathField.SetText(dir)
-		//				setting.FilePath = dir
-		//			})
-		//		}
-		//	}()
-		//}).
+		AddButton("浏览...", func() {
+			// 调用系统文件选择对话框
+			go func() {
+				dir, err := dialog.Directory().Title("Choose XML Directory").Browse()
+				if err == nil {
+					app.QueueUpdateDraw(func() {
+						filePathField := globalFrom.GetFormItemByLabel("原始文件路径").(*tview.InputField)
+						filePathField.SetText(dir)
+						setting.FilePath = dir
+					})
+				}
+			}()
+		}).
 		AddInputField("解密密钥", setting.EncKey, 50, nil, func(text string) { setting.EncKey = text }).
 		AddInputField("退库报文银行行号", setting.PayeeOpBkCode, 50, nil, func(text string) { setting.PayeeOpBkCode = text }).
 		//AddButton("Browse...", func() {
@@ -701,15 +731,20 @@ func main() {
 			}
 			// 立即更新按钮状态为"运行中"
 			button := globalFrom.GetButton(globalFrom.GetButtonIndex(FireButtonName))
-			button.SetLabel("Running...")
+			button.SetLabel("运行中")
 			button.SetDisabled(true) // 按钮会置灰并禁用
 			// 创建新的 context
 			ctx, cancel = context.WithCancel(context.Background())
 			go displayStatistics(ctx, statisticdata, statisticsList, app)
-			handleMsg(ctx, 1, setting, statisticdata)
-			cancel()
-			button.SetLabel(FireButtonName)
-			button.SetDisabled(false) // 恢复正常状态
+			go func() {
+				handleMsg(ctx, 1, setting, statisticdata)
+				cancel()
+				app.QueueUpdateDraw(func() {
+					button.SetLabel(FireButtonName)
+					// 恢复正常状态
+					button.SetDisabled(false)
+				})
+			}()
 		}).
 		AddButton("Quit", func() {
 			setting.Save()
@@ -739,7 +774,7 @@ func main() {
 			button.SetDisabled(true) // 按钮会置灰并禁用
 
 			// 解密
-			decryptFiles(setting.OriginalFilePath, setting.EncKey)
+			decryptFiles(setting.OriginalFilePath, setting.EncKey, statisticdata)
 
 			// 更新按钮状态
 			button.SetLabel(Decrypt)
@@ -761,7 +796,7 @@ func main() {
 			button.SetDisabled(true) // 按钮会置灰并禁用
 
 			// 转换
-			convertFiles(setting.DecryptedFilePath, setting.OriginalFilePath, setting.PayeeOpBkCode)
+			convertFiles(setting.DecryptedFilePath, setting.OriginalFilePath, setting.PayeeOpBkCode, statisticdata)
 
 			// 更新按钮状态
 			button.SetLabel(Convert)

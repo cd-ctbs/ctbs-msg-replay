@@ -177,14 +177,16 @@ type SubjectList7211 struct {
 
 // OutputData 结构体定义输出数据
 type OutputData struct {
-	Item1 string
-	Item2 string
-	Item3 string
-	Item4 string
-	Item5 string
-	Item6 string
-	Item7 string
-	Item8 string
+	Item1           string
+	Item2           string
+	Item3           string
+	Item4           string
+	Item5           string
+	Item6           string
+	Item7           string
+	Item8           string
+	Detail7211Count int
+	Detail7221Count int
 }
 
 // 全局变量
@@ -271,6 +273,8 @@ func Convert7221(cfx *CFX) ([]*OutputData, error) {
 	data.Item6 = BuildItem6()
 	data.Item7 = BuildItem7(data.Item4)
 
+	detail7221Count := 0
+
 	// 构建新的CFX结构
 	newCfx := CFX{
 		HEAD: HEAD{
@@ -326,6 +330,7 @@ func Convert7221(cfx *CFX) ([]*OutputData, error) {
 
 		drawbackBody.DrawbackInfo7221 = append(drawbackBody.DrawbackInfo7221, drawbackInfo)
 		totalCounts++
+		detail7221Count++
 	}
 
 	newCfx.MSG.DrawbackBody7221 = drawbackBody
@@ -337,6 +342,7 @@ func Convert7221(cfx *CFX) ([]*OutputData, error) {
 	}
 
 	data.Item8 = outputXML
+	data.Detail7221Count = detail7221Count
 	result := []*OutputData{data}
 	return result, nil
 }
@@ -385,6 +391,7 @@ func doConvert6100To7211(cfx *CFX, taxOrgCode string) []*OutputData {
 	total6100Detail := len(cfx.MSG.TaxBody6100.TaxBill6100)
 	var totalAmt float64
 
+	detail7211Count := 0
 	for _, body6100 := range cfx.MSG.TaxBody6100.TaxBill6100 {
 		amt, _ := strconv.ParseFloat(body6100.TaxAmt, 64)
 		totalAmt += amt
@@ -435,6 +442,7 @@ func doConvert6100To7211(cfx *CFX, taxOrgCode string) []*OutputData {
 
 		taxBody7211.TaxInfo7211 = append(taxBody7211.TaxInfo7211, taxInfo7211)
 		totalCounts++
+		detail7211Count++
 
 		// 每1000条记录或最后一条记录时生成一个输出
 		if j%1000 == 0 || total6100Detail == j {
@@ -445,6 +453,7 @@ func doConvert6100To7211(cfx *CFX, taxOrgCode string) []*OutputData {
 			data.Item5 = BuildItem5(data.Item4, msgId)
 			data.Item6 = BuildItem6()
 			data.Item7 = BuildItem7(data.Item4)
+			data.Detail7211Count = detail7211Count
 
 			// 构建新的CFX结构
 			newCfx := CFX{
@@ -489,6 +498,7 @@ func doConvert6100To7211(cfx *CFX, taxOrgCode string) []*OutputData {
 			taxBody7211 = &TaxBody7211{}
 			totalAmt = 0
 			n = 0
+			detail7211Count = 0
 		}
 
 		j++

@@ -102,7 +102,7 @@ func (c *CFMQClient) SendTipsMsg(msg string, treCode string) error {
 	}
 
 	AppLogger.Printf("[CFMQ] sending message trecode: %s", treCode)
-	AppLogger.Printf("[CFMQ] sending message: %s", msg)
+	//AppLogger.Printf("[CFMQ] sending message: %s", msg)
 	headers := make(map[string]string)
 	headers[TOKEN] = c.Token
 	headers[DESTINATION] = c.SedQueueTips
